@@ -40,11 +40,37 @@ public class CrossingGate : MonoBehaviour
     [Tooltip("Fires when the gate is closed")]
     public UnityEvent OnGateClosed;
 
+    [Header("UI & Audio Feedback")]
+    [Tooltip("An Image (set to type Filled) to show the remaining closed time. Will be toggled on/off automatically.")]
+    public UnityEngine.UI.Image timerFillImage;
+
+    [Tooltip("AudioSource to play gate sounds.")]
+    public AudioSource gateAudioSource;
+    [Tooltip("Sound played when the player clicks the gate.")]
+    public AudioClip clickSfx;
+
+    [Header("Hover Feedback")]
+    [Tooltip("Fires when the mouse cursor hovers over the gate.")]
+    public UnityEvent OnGateHoverEnter;
+
+    [Tooltip("Fires when the mouse cursor leaves the gate.")]
+    public UnityEvent OnGateHoverExit;
+
     private float closedTimer = 0f;
     private Coroutine animCoroutine;
+    private bool isHovered = false;
 
     // Trains currently occupying the crossing zone
     private HashSet<TrainController> trainsInZone = new HashSet<TrainController>();
+
+    void Start()
+    {
+        if (timerFillImage != null)
+        {
+            timerFillImage.gameObject.SetActive(!isGateOpen);
+            if (!isGateOpen) timerFillImage.fillAmount = closedTimer / maxClosedTime;
+        }
+    }
 
     void Update()
     {
@@ -52,6 +78,12 @@ public class CrossingGate : MonoBehaviour
         if (!isGateOpen)
         {
             closedTimer -= Time.deltaTime;
+
+            if (timerFillImage != null)
+            {
+                timerFillImage.fillAmount = closedTimer / maxClosedTime;
+            }
+
             if (closedTimer <= 0)
             {
                 // Force open the gate when the timer runs out!
@@ -59,10 +91,15 @@ public class CrossingGate : MonoBehaviour
             }
         }
 
-        // 2. Listen for the New Input System left mouse click
-        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
+        // 2. Listen for Hover and Click from the New Input System
+        if (Mouse.current != null)
         {
-            CheckForMouseClick();
+            CheckForMouseHover();
+
+            if (Mouse.current.leftButton.wasPressedThisFrame)
+            {
+                CheckForMouseClick();
+            }
         }
     }
     
@@ -90,8 +127,45 @@ public class CrossingGate : MonoBehaviour
             // If it found a script, and that script is THIS specific instance, toggle it!
             if (clickedGate == this)
             {
+                if (gateAudioSource != null && clickSfx != null)
+                {
+                    gateAudioSource.PlayOneShot(clickSfx);
+                }
                 ToggleGate();
             }
+        }
+    }
+
+    /// <summary>
+    /// Shoots a raycast from the mouse cursor to see if we are currently hovering over THIS gate.
+    /// </summary>
+    private void CheckForMouseHover()
+    {
+        if (Camera.main == null) return;
+        Vector2 mousePos = Mouse.current.position.ReadValue();
+        Ray ray = Camera.main.ScreenPointToRay(mousePos);
+        RaycastHit hit;
+
+        bool hitThis = false;
+        if (Physics.Raycast(ray, out hit))
+        {
+            CrossingGate hoveredGate = hit.collider.GetComponentInParent<CrossingGate>();
+            if (hoveredGate == this)
+            {
+                hitThis = true;
+            }
+        }
+
+        // Trigger events only when the state actually changes
+        if (hitThis && !isHovered)
+        {
+            isHovered = true;
+            OnGateHoverEnter?.Invoke();
+        }
+        else if (!hitThis && isHovered)
+        {
+            isHovered = false;
+            OnGateHoverExit?.Invoke();
         }
     }
 
@@ -140,12 +214,24 @@ public class CrossingGate : MonoBehaviour
         if (!isGateOpen)
         {
             closedTimer = maxClosedTime;
+            
+            if (timerFillImage != null)
+            {
+                timerFillImage.fillAmount = 1f;
+                timerFillImage.gameObject.SetActive(true);
+            }
+
             OnGateClosed?.Invoke();
             PlayAnimation(closeStateName, nextStateName: idleStateName);
             Debug.Log($"{gameObject.name} Closed! Trains waiting... Timer started.");
         }
         else
         {
+            if (timerFillImage != null)
+            {
+                timerFillImage.gameObject.SetActive(false);
+            }
+
             OnGateOpened?.Invoke();
             PlayAnimation(openStateName, nextStateName: idleStateOpen);
             Debug.Log($"{gameObject.name} Opened! Trains moving.");

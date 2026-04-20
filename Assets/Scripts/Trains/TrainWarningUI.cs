@@ -36,6 +36,12 @@ public class TrainWarningUI : MonoBehaviour
     [Tooltip("Seconds to display the route-specific direction sprite (phase 2).")]
     [SerializeField] private float routeShowDuration = 5f;
 
+    [Header("Audio")]
+    [Tooltip("Sound effect played when the warning sign first appears.")]
+    [SerializeField] private AudioClip warningSfx;
+    [Tooltip("AudioSource to play the warning SFX. Uses the one on this GameObject if not assigned.")]
+    [SerializeField] private AudioSource audioSource;
+
     void Start()
     {
         // Hide all directions initially
@@ -95,9 +101,18 @@ public class TrainWarningUI : MonoBehaviour
 
     private IEnumerator RunSequence(Image activeImage, CanvasGroup activeGroup, Sprite destinationRouteSprite, Action onSpawn)
     {
+        // ── Ensure AudioSource is hooked up ──
+        if (audioSource == null) audioSource = GetComponent<AudioSource>();
+
         // ── Show the warning sprite ──
         activeImage.sprite = warningSprite;
         activeGroup.alpha = 1f;
+
+        // ── Play warning sound ──
+        if (audioSource != null && warningSfx != null)
+        {
+            audioSource.PlayOneShot(warningSfx);
+        }
 
         // ── Phase 1: Wait while the warning sign is shown ──
         yield return new WaitForSeconds(warningSignDuration);

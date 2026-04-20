@@ -55,6 +55,13 @@ public class TrainJunctionSpawner : MonoBehaviour
     [Tooltip("The prefab of the train to spawn. Needs a TrainController attached.")]
     public GameObject trainPrefab;
 
+    [Header("Object Pooling")]
+    [Tooltip("Default initial number of trains to keep in the pool.")]
+    public int defaultPoolCapacity = 10;
+    
+    [Tooltip("Maximum number of trains to store in the pool before destroying excess.")]
+    public int maxPoolSize = 20;
+
     [Header("Warning UI")]
     [Tooltip("Reference to the TrainWarningUI component in the scene.")]
     public TrainWarningUI warningUI;
@@ -72,10 +79,25 @@ public class TrainJunctionSpawner : MonoBehaviour
     // ─────────────────────────────────────────────────────────────────────────
 
     private float timer;
+    private UnityEngine.Pool.ObjectPool<TrainController> trainPool;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Unity lifecycle
     // ─────────────────────────────────────────────────────────────────────────
+
+    void Awake()
+    {
+        // Initialize the built-in Unity Object Pool for trains
+        trainPool = new UnityEngine.Pool.ObjectPool<TrainController>(
+            createFunc: CreateNewTrain,
+            actionOnGet: (train) => train.gameObject.SetActive(true),
+            actionOnRelease: (train) => train.gameObject.SetActive(false),
+            actionOnDestroy: (train) => Destroy(train.gameObject),
+            collectionCheck: false,
+            defaultCapacity: defaultPoolCapacity,
+            maxSize: maxPoolSize
+        );
+    }
 
     void Start()
     {
@@ -248,25 +270,44 @@ public class TrainJunctionSpawner : MonoBehaviour
         );
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Object Pooling & Actual Spawning
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private TrainController CreateNewTrain()
+    {
+        GameObject obj = Instantiate(trainPrefab);
+        return obj.GetComponent<TrainController>();
+    }
+
     /// <summary>
-    /// Instantiates the train prefab at the start of <paramref name="route"/>'s path
-    /// and hands it off to <see cref="TrainController"/>.
+    /// Grabs a train from the pool, places it at the start, and hands it off.
     /// </summary>
     private void SpawnTrain(EntryPoint entry, RouteMap route)
     {
         if (trainPrefab == null || route.path == null) return;
 
-        Vector3    startPos    = route.path.EvaluatePositionAtUnit(0, CinemachinePathBase.PositionUnits.Distance);
-        GameObject spawnedTrain = Instantiate(trainPrefab, startPos, Quaternion.identity);
-
-        TrainController controller = spawnedTrain.GetComponent<TrainController>();
+        TrainController controller = trainPool.Get();
+        
         if (controller != null)
         {
-            controller.AssignRoute(route.path, entry.gate);
+            Vector3 startPos = route.path.EvaluatePositionAtUnit(0, CinemachinePathBase.PositionUnits.Distance);
+            
+            // Explicitly set the top-level transform
+            controller.transform.position = startPos;
+            controller.transform.rotation = Quaternion.identity;
+
+            // Pass the path, the gate, and the callback to return it to the pool
+            controller.AssignRoute(route.path, entry.gate, ReturnTrainToPool);
         }
         else
         {
             Debug.LogWarning("[TrainJunctionSpawner] TrainController component not found on the spawned train prefab!");
         }
+    }
+
+    private void ReturnTrainToPool(TrainController train)
+    {
+        trainPool.Release(train);
     }
 }
