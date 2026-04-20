@@ -45,16 +45,13 @@ public class TrainController : MonoBehaviour
             }
         }
 
-        // Hook up to Gate events if there is one
+        // Hook up to Gate events if there is one.
+        // We only listen for OnGateOpened so that a train waiting at the gate
+        // resumes when the gate opens. We do NOT subscribe to OnGateClosed here
+        // because the train should keep moving until it physically reaches the gate.
         if (currentGate != null)
         {
-            if (!currentGate.isGateOpen)
-            {
-                StopTrainCarts();
-            }
-
             currentGate.OnGateOpened.AddListener(ResumeTrainCarts);
-            currentGate.OnGateClosed.AddListener(StopTrainCarts);
         }
     }
 
@@ -70,6 +67,12 @@ public class TrainController : MonoBehaviour
         if (gate != null && gate == currentGate)
         {
             gate.RegisterTrainInZone(this);
+
+            // Stop here if the gate is currently closed — wait until it opens
+            if (!gate.isGateOpen)
+            {
+                StopTrainCarts();
+            }
         }
     }
 
@@ -123,7 +126,6 @@ public class TrainController : MonoBehaviour
         {
             currentGate.UnregisterTrainFromZone(this);
             currentGate.OnGateOpened.RemoveListener(ResumeTrainCarts);
-            currentGate.OnGateClosed.RemoveListener(StopTrainCarts);
         }
     }
 }

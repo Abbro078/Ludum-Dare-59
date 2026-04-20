@@ -30,6 +30,9 @@ public class CrossingGate : MonoBehaviour
     [Tooltip("Exact name of the Idle animation state in the Animator.")]
     public string idleStateName  = "Nothinging";
     
+    [Tooltip("Exact name of the Idle Open animation state in the Animator.")]
+    public string idleStateOpen  = "OpenNothinging";
+    
     [Header("Visual/Event Feedback")]
     [Tooltip("Fires when the gate is opened (use to play animation, change material, etc.)")]
     public UnityEvent OnGateOpened;
@@ -138,13 +141,13 @@ public class CrossingGate : MonoBehaviour
         {
             closedTimer = maxClosedTime;
             OnGateClosed?.Invoke();
-            PlayAnimation(closeStateName, thenPlayIdle: true);
+            PlayAnimation(closeStateName, nextStateName: idleStateName);
             Debug.Log($"{gameObject.name} Closed! Trains waiting... Timer started.");
         }
         else
         {
             OnGateOpened?.Invoke();
-            PlayAnimation(openStateName, thenPlayIdle: false);
+            PlayAnimation(openStateName, nextStateName: idleStateOpen);
             Debug.Log($"{gameObject.name} Opened! Trains moving.");
         }
     }
@@ -154,11 +157,9 @@ public class CrossingGate : MonoBehaviour
     // -------------------------------------------------------
 
     /// <summary>
-    /// Plays <paramref name="stateName"/> on the gate animator.
-    /// If <paramref name="thenPlayIdle"/> is true, transitions to the idle state
-    /// once the clip finishes. Otherwise freezes on the last frame.
+    /// Plays <paramref name="stateName"/>, then transitions to <paramref name="nextStateName"/> once it finishes.
     /// </summary>
-    private void PlayAnimation(string stateName, bool thenPlayIdle)
+    private void PlayAnimation(string stateName, string nextStateName)
     {
         if (gateAnimator == null) return;
 
@@ -169,24 +170,21 @@ public class CrossingGate : MonoBehaviour
             animCoroutine = null;
         }
 
-        // Always make sure speed is normal before starting
         gateAnimator.speed = 1f;
         gateAnimator.Play(stateName, 0, 0f);
 
-        animCoroutine = StartCoroutine(thenPlayIdle
-            ? WaitThenPlayIdle(stateName)
-            : FreezeOnLastFrame(stateName));
+        animCoroutine = StartCoroutine(WaitThenPlay(stateName, nextStateName));
     }
 
     /// <summary>
-    /// Waits for <paramref name="stateName"/> to finish, then plays the idle state.
+    /// Waits for <paramref name="stateName"/> to finish, then plays <paramref name="nextStateName"/>.
     /// </summary>
-    private IEnumerator WaitThenPlayIdle(string stateName)
+    private IEnumerator WaitThenPlay(string stateName, string nextStateName)
     {
-        // Give Unity one frame to start the new state
+        // Give Unity one frame to register the new state
         yield return null;
 
-        // Wait until we ARE in the target state and it has finished
+        // Poll until we are inside the expected state and it has reached its end
         while (true)
         {
             AnimatorStateInfo info = gateAnimator.GetCurrentAnimatorStateInfo(0);
@@ -196,29 +194,7 @@ public class CrossingGate : MonoBehaviour
         }
 
         gateAnimator.speed = 1f;
-        gateAnimator.Play(idleStateName, 0, 0f);
-        animCoroutine = null;
-    }
-
-    /// <summary>
-    /// Waits for <paramref name="stateName"/> to finish, then freezes (speed = 0) on the last frame.
-    /// </summary>
-    private IEnumerator FreezeOnLastFrame(string stateName)
-    {
-        // Give Unity one frame to start the new state
-        yield return null;
-
-        // Wait until we ARE in the target state and it has finished
-        while (true)
-        {
-            AnimatorStateInfo info = gateAnimator.GetCurrentAnimatorStateInfo(0);
-            if (info.IsName(stateName) && info.normalizedTime >= 1f)
-                break;
-            yield return null;
-        }
-
-        // Freeze on the last frame
-        gateAnimator.speed = 0f;
+        gateAnimator.Play(nextStateName, 0, 0f);
         animCoroutine = null;
     }
 }
