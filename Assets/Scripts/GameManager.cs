@@ -12,6 +12,16 @@ public class GameManager : MonoBehaviour
     [Tooltip("Panel to show when the game is over.")]
     public GameObject gameOverPanel;
 
+    [Tooltip("Text element ON the Game Over panel to display final score.")]
+    public TextMeshProUGUI gameOverScoreText;
+
+    [Tooltip("Panel to show when the game is paused.")]
+    public GameObject pausePanel;
+
+    [Header("Scene Routing")]
+    [Tooltip("The exact name of your Main Menu scene.")]
+    public string mainMenuSceneName = "MainMenu";
+
     private int score = 0;
     private bool isGameOver = false;
 
@@ -29,10 +39,8 @@ public class GameManager : MonoBehaviour
     void Start()
     {
         UpdateScoreUI();
-        if (gameOverPanel != null)
-        {
-            gameOverPanel.SetActive(false);
-        }
+        if (gameOverPanel != null) gameOverPanel.SetActive(false);
+        if (pausePanel != null) pausePanel.SetActive(false);
     }
 
     public void AddPoint()
@@ -62,6 +70,11 @@ public class GameManager : MonoBehaviour
             gameOverPanel.SetActive(true);
         }
 
+        if (gameOverScoreText != null)
+        {
+            gameOverScoreText.text = score.ToString();
+        }
+
         // Pause the game, stop time, and locally mute all standard sounds!
         Time.timeScale = 0f;
         AudioListener.pause = true; 
@@ -74,5 +87,30 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 1f;
         AudioListener.pause = false;
         UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+    }
+
+    public void PauseGame()
+    {
+        if (isGameOver) return;
+        
+        if (pausePanel != null) pausePanel.SetActive(true);
+        Time.timeScale = 0f;
+        AudioListener.pause = true;
+    }
+
+    public void ResumeGame()
+    {
+        if (isGameOver) return;
+
+        if (pausePanel != null) pausePanel.SetActive(false);
+        Time.timeScale = 1f;
+        AudioListener.pause = false;
+    }
+
+    public void QuitToMainMenu()
+    {
+        Time.timeScale = 1f;
+        AudioListener.pause = false;
+        UnityEngine.SceneManagement.SceneManager.LoadScene(mainMenuSceneName);
     }
 }
