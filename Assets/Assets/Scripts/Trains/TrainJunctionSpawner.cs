@@ -51,12 +51,8 @@ public class TrainJunctionSpawner : MonoBehaviour
     // Inspector fields
     // ─────────────────────────────────────────────────────────────────────────
 
-    [Header("Spawner Configurations")]
-    [Tooltip("The prefab of the train to spawn. Needs a TrainController attached.")]
-    public GameObject trainPrefab;
-
     [Header("Object Pooling")]
-    [Tooltip("Default initial number of trains to keep in the pool.")]
+    [Tooltip("Default initial number of trains to keep in the pool (per type).")]
     public int defaultPoolCapacity = 10;
     
     [Tooltip("Maximum number of trains to store in the pool before destroying excess.")]
@@ -66,20 +62,17 @@ public class TrainJunctionSpawner : MonoBehaviour
     [Tooltip("Reference to the TrainWarningUI component in the scene.")]
     public TrainWarningUI warningUI;
 
-    [Header("Timing")]
-    [Tooltip("Total time between each wave of warnings. (e.g. 8 seconds allows for a 6-second UI warning + 2 seconds of cooldown).")]
-    public float spawnCycleDuration = 8f;
-
-    [Header("4-Way Junction Logic")]
-    [Tooltip("Define your 4 Entry Points here (Top, Bottom, Left, Right). Assign the routes that start at each entrance.")]
-    public List<EntryPoint> entryPoints = new List<EntryPoint>();
-
     // ─────────────────────────────────────────────────────────────────────────
     // Private state
     // ─────────────────────────────────────────────────────────────────────────
 
     private float timer;
-    private UnityEngine.Pool.ObjectPool<TrainController> trainPool;
+    private float currentCycleDuration;
+    private DaySettings currentDaySettings;
+    private JunctionLayout activeLayout;
+    private bool isSpawningActive = false;
+    private int trainsSpawnedThisDay = 0;
+    private Dictionary<GameObject, UnityEngine.Pool.ObjectPool<TrainController>> trainPools = new Dictionary<GameObject, UnityEngine.Pool.ObjectPool<TrainController>>();
 
     // ─────────────────────────────────────────────────────────────────────────
     // Unity lifecycle
@@ -87,32 +80,42 @@ public class TrainJunctionSpawner : MonoBehaviour
 
     void Awake()
     {
-        // Initialize the built-in Unity Object Pool for trains
-        trainPool = new UnityEngine.Pool.ObjectPool<TrainController>(
-            createFunc: CreateNewTrain,
-            actionOnGet: (train) => train.gameObject.SetActive(true),
-            actionOnRelease: (train) => train.gameObject.SetActive(false),
-            actionOnDestroy: (train) => Destroy(train.gameObject),
-            collectionCheck: false,
-            defaultCapacity: defaultPoolCapacity,
-            maxSize: maxPoolSize
-        );
+        // Pools are now initialized on demand per-prefab
     }
 
     void Start()
     {
-        // Start with a 2-second gap before the very first warning sequence kicks off
+        // Spawning will be started by LevelManager.SetupDay()
+    }
+
+    public void SetupDay(DaySettings daySettings, JunctionLayout layout)
+    {
+        currentDaySettings = daySettings;
+        activeLayout = layout;
+        currentCycleDuration = daySettings.initialTimeBetweenWaves;
+        trainsSpawnedThisDay = 0;
+        isSpawningActive = true;
+        
+        // Start with a short gap before the very first warning sequence kicks off
         timer = 2f;
     }
 
     void Update()
     {
+        if (!isSpawningActive || currentDaySettings == null || activeLayout == null) return;
+
         timer -= Time.deltaTime;
 
         if (timer <= 0f)
         {
             TriggerWarnings();
-            timer = spawnCycleDuration;
+            
+            // Decrease cycle duration for progressive difficulty
+            currentCycleDuration = Mathf.Max(
+                currentDaySettings.minimumTimeBetweenWaves, 
+                currentCycleDuration - currentDaySettings.timeBetweenWavesDecreaseRate
+            );
+            timer = currentCycleDuration;
         }
     }
 
@@ -124,35 +127,41 @@ public class TrainJunctionSpawner : MonoBehaviour
     /// Randomly selects up to 3 distinct entry+route pairs ensuring no topological deadlock
     /// (so the player always has a way to solve the puzzle), and fires a warning UI for each.
     /// The actual train instantiation is deferred to the warning's completion callback.
-    /// </summary>
+    /// <summary>
     private void TriggerWarnings()
     {
-        if (trainPrefab == null)
-        {
-            Debug.LogError("Train prefab is not assigned in TrainJunctionSpawner!");
-            return;
-        }
 
-        // We need at least 3 distinct entry points to avoid trains spawning on top of each other
-        if (entryPoints.Count < 3)
+        // We need at least enough entry points to satisfy the max spawn
+        if (activeLayout.entryPoints.Count < currentDaySettings.maxSimultaneousSpawns)
         {
-            Debug.LogWarning("Insufficient Entry Points! Define at least 3 Entry Points.");
+            Debug.LogWarning("Insufficient Entry Points in JunctionLayout!");
             return;
         }
 
         // Shuffle a copy so we don't mutate the original list
-        List<EntryPoint> shuffled = new List<EntryPoint>(entryPoints);
+        List<EntryPoint> shuffled = new List<EntryPoint>(activeLayout.entryPoints);
         for (int i = 0; i < shuffled.Count; i++)
         {
             int        rnd  = Random.Range(i, shuffled.Count);
-            EntryPoint temp = shuffled[i];
-            shuffled[i]     = shuffled[rnd];
-            shuffled[rnd]   = temp;
+            (shuffled[i], shuffled[rnd]) = (shuffled[rnd], shuffled[i]);
         }
 
-        // Grab exactly 3 entry points (that actually have routes configured)
+        // Determine how many trains to spawn this wave
+        int trainsToSpawn = Random.Range(currentDaySettings.minSimultaneousSpawns, currentDaySettings.maxSimultaneousSpawns + 1);
+
+        // Cap by remaining trains for the day
+        int remainingTrainsForDay = currentDaySettings.requiredTrainsToPass - trainsSpawnedThisDay;
+        trainsToSpawn = Mathf.Min(trainsToSpawn, remainingTrainsForDay);
+
+        if (trainsToSpawn <= 0)
+        {
+            isSpawningActive = false;
+            return; // We have spawned all required trains for the day!
+        }
+
+        // Grab exactly trainsToSpawn entry points (that actually have routes configured)
         List<EntryPoint> activeEntries = new List<EntryPoint>();
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < shuffled.Count && activeEntries.Count < trainsToSpawn; i++)
         {
             if (shuffled[i].routesFromHere != null && shuffled[i].routesFromHere.Count > 0)
             {
@@ -198,6 +207,11 @@ public class TrainJunctionSpawner : MonoBehaviour
             if (capturedRoute.path == null) continue;
 
             ShowWarning(capturedEntry, capturedRoute);
+            trainsSpawnedThisDay++;
+            if (LevelManager.Instance != null)
+            {
+                LevelManager.Instance.OnTrainSpawned();
+            }
         }
     }
 
@@ -274,10 +288,24 @@ public class TrainJunctionSpawner : MonoBehaviour
     // Object Pooling & Actual Spawning
     // ─────────────────────────────────────────────────────────────────────────
 
-    private TrainController CreateNewTrain()
+    private UnityEngine.Pool.ObjectPool<TrainController> GetOrCreatePool(GameObject prefab)
     {
-        GameObject obj = Instantiate(trainPrefab);
-        return obj.GetComponent<TrainController>();
+        if (!trainPools.ContainsKey(prefab))
+        {
+            trainPools[prefab] = new UnityEngine.Pool.ObjectPool<TrainController>(
+                createFunc: () => {
+                    GameObject obj = Instantiate(prefab);
+                    return obj.GetComponent<TrainController>();
+                },
+                actionOnGet: (train) => train.gameObject.SetActive(true),
+                actionOnRelease: (train) => train.gameObject.SetActive(false),
+                actionOnDestroy: (train) => Destroy(train.gameObject),
+                collectionCheck: false,
+                defaultCapacity: defaultPoolCapacity,
+                maxSize: maxPoolSize
+            );
+        }
+        return trainPools[prefab];
     }
 
     /// <summary>
@@ -285,9 +313,17 @@ public class TrainJunctionSpawner : MonoBehaviour
     /// </summary>
     private void SpawnTrain(EntryPoint entry, RouteMap route)
     {
-        if (trainPrefab == null || route.path == null) return;
+        if (currentDaySettings == null || currentDaySettings.allowedTrainTypes == null || currentDaySettings.allowedTrainTypes.Count == 0 || route.path == null) 
+        {
+            Debug.LogWarning("[TrainJunctionSpawner] Cannot spawn train. No allowed train types defined in current DaySettings.");
+            return;
+        }
 
-        TrainController controller = trainPool.Get();
+        GameObject prefabToSpawn = currentDaySettings.allowedTrainTypes[Random.Range(0, currentDaySettings.allowedTrainTypes.Count)];
+        if (prefabToSpawn == null) return;
+
+        UnityEngine.Pool.ObjectPool<TrainController> pool = GetOrCreatePool(prefabToSpawn);
+        TrainController controller = pool.Get();
         
         if (controller != null)
         {
@@ -297,17 +333,12 @@ public class TrainJunctionSpawner : MonoBehaviour
             controller.transform.position = startPos;
             controller.transform.rotation = Quaternion.identity;
 
-            // Pass the path, the gate, and the callback to return it to the pool
-            controller.AssignRoute(route.path, entry.gate, ReturnTrainToPool);
+            // Pass the path, the gate, and the callback to return it to the correct pool
+            controller.AssignRoute(route.path, entry.gate, (train) => pool.Release(train));
         }
         else
         {
             Debug.LogWarning("[TrainJunctionSpawner] TrainController component not found on the spawned train prefab!");
         }
-    }
-
-    private void ReturnTrainToPool(TrainController train)
-    {
-        trainPool.Release(train);
     }
 }

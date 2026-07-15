@@ -117,8 +117,13 @@ public class TrainController : MonoBehaviour
                 hasScored = true;
                 
                 // Yield a point and clean up
-                if (GameManager.Instance != null)
+                if (LevelManager.Instance != null)
                 {
+                    LevelManager.Instance.OnTrainPassed();
+                }
+                else if (GameManager.Instance != null)
+                {
+                    // Fallback just in case LevelManager isn't there
                     GameManager.Instance.AddPoint();
                 }
                 

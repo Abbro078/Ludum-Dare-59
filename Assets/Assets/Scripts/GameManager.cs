@@ -18,11 +18,14 @@ public class GameManager : MonoBehaviour
     [Tooltip("Panel to show when the game is paused.")]
     public GameObject pausePanel;
 
+    [Tooltip("Panel to show when the day is complete.")]
+    public GameObject dayCompletePanel;
+
     [Header("Scene Routing")]
     [Tooltip("The exact name of your Main Menu scene.")]
     public string mainMenuSceneName = "MainMenu";
 
-    private int score = 0;
+    public int Score { get; private set; } = 0;
     private bool isGameOver = false;
 
     void Awake()
@@ -41,13 +44,14 @@ public class GameManager : MonoBehaviour
         UpdateScoreUI();
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
         if (pausePanel != null) pausePanel.SetActive(false);
+        if (dayCompletePanel != null) dayCompletePanel.SetActive(false);
     }
 
     public void AddPoint()
     {
         if (isGameOver) return;
 
-        score++;
+        Score++;
         UpdateScoreUI();
     }
 
@@ -55,7 +59,7 @@ public class GameManager : MonoBehaviour
     {
         if (scoreText != null)
         {
-            scoreText.text = "Score: " + score;
+            scoreText.text = "Score: " + Score;
         }
     }
 
@@ -72,7 +76,7 @@ public class GameManager : MonoBehaviour
 
         if (gameOverScoreText != null)
         {
-            gameOverScoreText.text = score.ToString();
+            gameOverScoreText.text = Score.ToString();
         }
 
         // Pause the game, stop time, and locally mute all standard sounds!
@@ -112,5 +116,31 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 1f;
         AudioListener.pause = false;
         UnityEngine.SceneManagement.SceneManager.LoadScene(mainMenuSceneName);
+    }
+
+    public void ShowDayCompleteUI(int finalScore)
+    {
+        if (isGameOver) return;
+
+        if (dayCompletePanel != null)
+        {
+            dayCompletePanel.SetActive(true);
+        }
+
+        // Pause the game, stop time, and locally mute all standard sounds!
+        Time.timeScale = 0f;
+        AudioListener.pause = true; 
+    }
+
+    public void HideDayCompleteUI()
+    {
+        if (dayCompletePanel != null)
+        {
+            dayCompletePanel.SetActive(false);
+        }
+
+        // Resume time
+        Time.timeScale = 1f;
+        AudioListener.pause = false; 
     }
 }
