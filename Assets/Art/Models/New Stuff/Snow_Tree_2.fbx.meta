@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: a2817cdcb9bcd214bb435143a5d4399c
+guid: 641956a5fe171e84ba9462e3dae612e4
 ModelImporter:
   serializedVersion: 24200
   internalIDToNameTable: []
@@ -7,8 +7,8 @@ ModelImporter:
   - first:
       type: UnityEngine:Material
       assembly: UnityEngine.CoreModule
-      name: Material
-    second: {fileID: 2100000, guid: 1f9837fa83d82e04497ac4e6caf63bac, type: 2}
+      name: Forest Props
+    second: {fileID: 2100000, guid: 8a3a78cd22cba5345aaa5fc7b85012d6, type: 2}
   materials:
     materialImportMode: 2
     materialName: 0
