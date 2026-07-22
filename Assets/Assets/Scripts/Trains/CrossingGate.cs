@@ -13,9 +13,6 @@ public class CrossingGate : MonoBehaviour
 {
     [Header("Gate State")]
     public bool isGateOpen = true;
-    
-    [Tooltip("How long (in seconds) the gate can remain closed before forcing itself open.")]
-    public float maxClosedTime = 5f;
 
     [Header("Animation")]
     [Tooltip("Animator on the gate model. Leave empty to skip animation.")]
@@ -57,41 +54,39 @@ public class CrossingGate : MonoBehaviour
     public UnityEvent OnGateHoverExit;
 
     private float closedTimer = 0f;
+    private float maxForceClosedTime = 0f;
+    private bool isForceTimerActive = false;
     private Coroutine animCoroutine;
     private bool isHovered = false;
 
-    // Trains currently occupying the crossing zone
-    private HashSet<TrainController> trainsInZone = new HashSet<TrainController>();
+    private HashSet<TrainBase> trainsInZone = new HashSet<TrainBase>();
 
     void Start()
     {
         if (timerFillImage != null)
         {
-            timerFillImage.gameObject.SetActive(!isGateOpen);
-            if (!isGateOpen) timerFillImage.fillAmount = closedTimer / maxClosedTime;
+            timerFillImage.gameObject.SetActive(false);
         }
     }
 
     void Update()
     {
-        // 1. Handle the automatic timer
-        if (!isGateOpen)
+        if (!isGateOpen && isForceTimerActive)
         {
             closedTimer -= Time.deltaTime;
 
             if (timerFillImage != null)
             {
-                timerFillImage.fillAmount = closedTimer / maxClosedTime;
+                timerFillImage.fillAmount = closedTimer / maxForceClosedTime;
             }
 
             if (closedTimer <= 0)
             {
-                // Force open the gate when the timer runs out!
+                isForceTimerActive = false;
                 SetGateOpen(true);
             }
         }
 
-        // 2. Listen for Hover and Click from the New Input System
         if (Mouse.current != null)
         {
             CheckForMouseHover();
@@ -103,28 +98,19 @@ public class CrossingGate : MonoBehaviour
         }
     }
     
-    /// <summary>
-    /// Shoots a raycast from the camera to the mouse cursor to see if we clicked THIS object or its children.
-    /// </summary>
     private void CheckForMouseClick()
     {
-        // Make sure your camera in the hierarchy is tagged as "MainCamera"!
         if (Camera.main == null) return;
 
-        // Get the current mouse position on the screen
         Vector2 mousePos = Mouse.current.position.ReadValue();
     
-        // Create a 3D ray going out from the camera through that mouse position
         Ray ray = Camera.main.ScreenPointToRay(mousePos);
         RaycastHit hit;
 
-        // If the ray hits a 3D collider...
         if (Physics.Raycast(ray, out hit))
         {
-            // Check if the collider we hit has a CrossingGate script on it, or on any of its parent objects
             CrossingGate clickedGate = hit.collider.GetComponentInParent<CrossingGate>();
 
-            // If it found a script, and that script is THIS specific instance, toggle it!
             if (clickedGate == this)
             {
                 if (gateAudioSource != null && clickSfx != null)
@@ -136,9 +122,6 @@ public class CrossingGate : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Shoots a raycast from the mouse cursor to see if we are currently hovering over THIS gate.
-    /// </summary>
     private void CheckForMouseHover()
     {
         if (Camera.main == null) return;
@@ -156,7 +139,6 @@ public class CrossingGate : MonoBehaviour
             }
         }
 
-        // Trigger events only when the state actually changes
         if (hitThis && !isHovered)
         {
             isHovered = true;
@@ -169,30 +151,18 @@ public class CrossingGate : MonoBehaviour
         }
     }
 
-    // -------------------------------------------------------
-    // Crossing-zone occupancy (called by TrainController)
-    // -------------------------------------------------------
-
-    /// <summary>Called when a train enters the crossing zone trigger.</summary>
-    public void RegisterTrainInZone(TrainController train)
+    public void RegisterTrainInZone(TrainBase train)
     {
         trainsInZone.Add(train);
     }
 
-    /// <summary>Called when a train exits the crossing zone trigger (has passed).</summary>
-    public void UnregisterTrainFromZone(TrainController train)
+    public void UnregisterTrainFromZone(TrainBase train)
     {
         trainsInZone.Remove(train);
     }
 
-    /// <summary>True when at least one train is currently inside the crossing zone.</summary>
     public bool IsOccupied => trainsInZone.Count > 0;
-
-    // -------------------------------------------------------
-
-    /// <summary>
-    /// Flips the state of the gate.
-    /// </summary>
+    
     public void ToggleGate()
     {
         SetGateOpen(!isGateOpen);
@@ -202,7 +172,6 @@ public class CrossingGate : MonoBehaviour
     {
         if (isGateOpen == open) return;
 
-        // Block closing if a train is currently inside the crossing zone
         if (!open && IsOccupied)
         {
             Debug.Log($"{gameObject.name}: Cannot close — a train is currently in the crossing zone!");
@@ -213,20 +182,13 @@ public class CrossingGate : MonoBehaviour
 
         if (!isGateOpen)
         {
-            closedTimer = maxClosedTime;
-            
-            if (timerFillImage != null)
-            {
-                timerFillImage.fillAmount = 1f;
-                timerFillImage.gameObject.SetActive(true);
-            }
-
             OnGateClosed?.Invoke();
             PlayAnimation(closeStateName, nextStateName: idleStateName);
-            Debug.Log($"{gameObject.name} Closed! Trains waiting... Timer started.");
+            Debug.Log($"{gameObject.name} Closed! Trains waiting...");
         }
         else
         {
+            isForceTimerActive = false;
             if (timerFillImage != null)
             {
                 timerFillImage.gameObject.SetActive(false);
@@ -237,19 +199,36 @@ public class CrossingGate : MonoBehaviour
             Debug.Log($"{gameObject.name} Opened! Trains moving.");
         }
     }
+    
+    public void StartForceOpenTimer(float duration)
+    {
+        if (isGateOpen) return;
 
-    // -------------------------------------------------------
-    // Animation helpers
-    // -------------------------------------------------------
+        maxForceClosedTime = duration;
+        closedTimer = duration;
+        isForceTimerActive = true;
 
-    /// <summary>
-    /// Plays <paramref name="stateName"/>, then transitions to <paramref name="nextStateName"/> once it finishes.
-    /// </summary>
+        if (timerFillImage != null)
+        {
+            timerFillImage.fillAmount = 1f;
+            timerFillImage.gameObject.SetActive(true);
+        }
+    }
+
+    public void StopForceOpenTimer()
+    {
+        isForceTimerActive = false;
+        
+        if (timerFillImage != null)
+        {
+            timerFillImage.gameObject.SetActive(false);
+        }
+    }
+
     private void PlayAnimation(string stateName, string nextStateName)
     {
         if (gateAnimator == null) return;
 
-        // Cancel any in-progress animation coroutine
         if (animCoroutine != null)
         {
             StopCoroutine(animCoroutine);
@@ -262,15 +241,10 @@ public class CrossingGate : MonoBehaviour
         animCoroutine = StartCoroutine(WaitThenPlay(stateName, nextStateName));
     }
 
-    /// <summary>
-    /// Waits for <paramref name="stateName"/> to finish, then plays <paramref name="nextStateName"/>.
-    /// </summary>
     private IEnumerator WaitThenPlay(string stateName, string nextStateName)
     {
-        // Give Unity one frame to register the new state
         yield return null;
 
-        // Poll until we are inside the expected state and it has reached its end
         while (true)
         {
             AnimatorStateInfo info = gateAnimator.GetCurrentAnimatorStateInfo(0);

@@ -19,14 +19,17 @@ public class DaySettings : ScriptableObject
     public int maxSimultaneousSpawns = 2;
     
     [Header("Progressive Difficulty (Intra-Day)")]
-    [Tooltip("Starting time between each wave.")]
-    public float initialTimeBetweenWaves = 6f;
+    [Tooltip("Time between each wave of trains. This stays fixed to prevent overlapping trains.")]
+    public float timeBetweenWaves = 8f;
     
-    [Tooltip("How much time is subtracted from the wave timer after every successful wave, making the day progressively harder.")]
-    public float timeBetweenWavesDecreaseRate = 0.1f;
+    [Tooltip("Starting duration of the UI warning before a train spawns.")]
+    public float initialWarningDuration = 6f;
     
-    [Tooltip("The lowest the timer can possibly go during this day.")]
-    public float minimumTimeBetweenWaves = 3f;
+    [Tooltip("How much time is subtracted from the warning duration after every successful wave. This reduces the player's reaction time!")]
+    public float warningDurationDecreaseRate = 0.1f;
+    
+    [Tooltip("The shortest possible warning time during this day.")]
+    public float minimumWarningDuration = 2f;
 
     [Header("Day-Specific Content & Mechanics")]
     [Tooltip("List of train prefabs allowed to spawn on this day.")]
@@ -37,4 +40,20 @@ public class DaySettings : ScriptableObject
     
     [Tooltip("(Optional) Prefabs for new mechanics introduced this day (e.g., an Obstacle Spawner). These will be instantiated at the start of the day and destroyed at the end.")]
     public List<GameObject> extraMechanicsPrefabs;
+
+    [Header("Debris Settings")]
+    [Tooltip("Configure debris for this specific day.")]
+    public DebrisConfig debrisConfig;
+}
+
+[System.Serializable]
+public struct DebrisConfig
+{
+    public bool enableDebrisThisDay;
+    [Tooltip("Prefabs to randomly spawn. Must have a DebrisBase component.")]
+    public List<GameObject> debrisPrefabs;
+    public int minDebrisPerWave;
+    public int maxDebrisPerWave;
+    [Tooltip("If greater than 0, overrides the required clicks on the prefab to scale difficulty.")]
+    public int overrideRequiredClicks;
 }

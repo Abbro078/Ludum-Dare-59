@@ -12,4 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 86a3fe18248b3ef4d982fdc2785d6a93, type: 3}
   m_Name: MainCampaign
   m_EditorClassIdentifier: Assembly-CSharp::CampaignSequence
-  days: []
+  days:
+  - {fileID: 11400000, guid: 1c6da8d372a55ca4d8177f04f826bce5, type: 2}
+  - {fileID: 11400000, guid: b8906e7fc5b149540b8d2c611555f1a6, type: 2}

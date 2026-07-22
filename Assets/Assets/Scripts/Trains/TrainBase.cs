@@ -1,7 +1,7 @@
 using UnityEngine;
 using Unity.Cinemachine;
 
-public class TrainController : MonoBehaviour
+public abstract class TrainBase : MonoBehaviour
 {
     [Header("Train Setup")]
     [Tooltip("Drag and drop your CinemachineDollyCart objects here.")]
@@ -19,21 +19,27 @@ public class TrainController : MonoBehaviour
 
     private CinemachinePath assignedRoute;
     private CrossingGate currentGate;
-    private float[] originalSpeeds;
+    
+    [Header("UI Indication")]
+    [Tooltip("The icon shown on the warning UI before this train spawns.")]
+    public Sprite trainWarningIcon;
+
+    [Tooltip("Speed the carts travel along the path.")]
+    public float[] originalSpeeds;
     private float[] originalPositions;
-    private System.Action<TrainController> onCompleteCallback;
+    private System.Action<TrainBase> onCompleteCallback;
     private System.Collections.Generic.HashSet<CrossingGate> occupiedGates = new System.Collections.Generic.HashSet<CrossingGate>();
     private int cartsInGateZone = 0;
 
-    // True once this train has fully passed the crossing zone
     private bool hasClearedZone = false;
     private bool hasScored = false;
+    protected bool IsStoppedWaitingForGate = false;
 
     private void Awake()
     {
         if (GetComponent<Rigidbody>() == null)
         {
-            Debug.LogWarning($"[TrainController] No Rigidbody found on {gameObject.name}! Collisions between trains will NOT work. Please add a Rigidbody (set to Is Kinematic).");
+            Debug.LogWarning($"[TrainBase] No Rigidbody found on {gameObject.name}! Collisions between trains will NOT work. Please add a Rigidbody (set to Is Kinematic).");
         }
 
         if (carts != null && carts.Length > 0)
@@ -51,13 +57,7 @@ public class TrainController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Assigns a route to the manually assigned Dolly Carts.
-    /// Also hooks into an optional crossing gate to stop/start movement.
-    /// </summary>
-    /// <param name="route">The CinemachinePath track to follow.</param>
-    /// <param name="onComplete">Callback triggered when the train is successfully done.</param>
-    public void AssignRoute(CinemachinePath route, CrossingGate gate = null, System.Action<TrainController> onComplete = null)
+    public void AssignRoute(CinemachinePath route, CrossingGate gate = null, System.Action<TrainBase> onComplete = null)
     {
         assignedRoute = route;
         currentGate = gate;
@@ -66,10 +66,16 @@ public class TrainController : MonoBehaviour
         occupiedGates.Clear();
         hasScored = false;
         hasClearedZone = false;
+        IsStoppedWaitingForGate = false;
+        
+        foreach (var col in GetComponentsInChildren<Collider>())
+        {
+            col.enabled = true;
+        }
         
         if (carts == null || carts.Length == 0)
         {
-            Debug.LogWarning("TrainController has no carts assigned in the Inspector!", this);
+            Debug.LogWarning("TrainBase has no carts assigned in the Inspector!", this);
             return;
         }
         
@@ -77,7 +83,6 @@ public class TrainController : MonoBehaviour
         {
             if (carts[i] != null)
             {
-                // Assign path and restore its original offset so trains don't overlap!
                 carts[i].m_Path = route;
                 carts[i].m_Position = originalPositions[i];
                 carts[i].m_Speed = originalSpeeds[i];
@@ -91,43 +96,31 @@ public class TrainController : MonoBehaviour
             trainAudioSource.loop = true;
             if (trainAudioSource.gameObject.activeInHierarchy) trainAudioSource.Play();
         }
-
-        // Hook up to Gate events if there is one.
-        // We only listen for OnGateOpened so that a train waiting at the gate
-        // resumes when the gate opens. We do NOT subscribe to OnGateClosed here
-        // because the train should keep moving until it physically reaches the gate.
+        
         if (currentGate != null)
         {
             currentGate.OnGateOpened.AddListener(ResumeTrainCarts);
         }
     }
 
-    // -----------------------------------------------------------
-    // Gameplay Logic & Physics
-    // -----------------------------------------------------------
-
     private void Update()
     {
         if (assignedRoute != null && carts != null && carts.Length > 0 && !hasScored)
         {
-            // Check if the first cart has reached the end of the path
             CinemachineDollyCart firstCart = carts[0];
             if (firstCart != null && firstCart.m_Position >= assignedRoute.PathLength)
             {
                 hasScored = true;
                 
-                // Yield a point and clean up
                 if (LevelManager.Instance != null)
                 {
                     LevelManager.Instance.OnTrainPassed();
                 }
                 else if (GameManager.Instance != null)
                 {
-                    // Fallback just in case LevelManager isn't there
                     GameManager.Instance.AddPoint();
                 }
                 
-                // Tell the Spawner to return this train into the pool
                 if (onCompleteCallback != null)
                 {
                     onCompleteCallback.Invoke(this);
@@ -144,8 +137,7 @@ public class TrainController : MonoBehaviour
     {
         if (hasClearedZone) return;
 
-        // 1. Train-to-Train collision check
-        TrainController otherTrain = other.GetComponentInParent<TrainController>();
+        TrainBase otherTrain = other.GetComponentInParent<TrainBase>();
         if (otherTrain != null && otherTrain != this)
         {
             Debug.Log($"Train {gameObject.name} collided with {otherTrain.gameObject.name}!");
@@ -154,11 +146,18 @@ public class TrainController : MonoBehaviour
             return;
         }
 
-        // 2. Gate interaction check
+        DebrisBase debris = other.GetComponentInParent<DebrisBase>();
+        if (debris != null)
+        {
+            Debug.Log($"Train {gameObject.name} crashed into debris!");
+            PlayCrashSound();
+            if (GameManager.Instance != null) GameManager.Instance.GameOver();
+            return;
+        }
+
         CrossingGate gate = other.GetComponentInParent<CrossingGate>();
         if (gate != null)
         {
-            // A cart entered the zone! Count it up.
             cartsInGateZone++; 
             
             occupiedGates.Add(gate);
@@ -180,18 +179,16 @@ public class TrainController : MonoBehaviour
         }
     }
 
-    private void PlayCrashSound()
+    protected void PlayCrashSound()
     {
         if (crashSfx != null)
         {
-            // Create a temporary 2D AudioSource to guarantee it's heard regardless of camera distance or TimeScale
             GameObject sfxObj = new GameObject("CrashSFX");
             AudioSource src = sfxObj.AddComponent<AudioSource>();
             src.clip = crashSfx;
-            src.spatialBlend = 0f; // 2D sound (max volume everywhere)
+            src.spatialBlend = 0f;
             src.ignoreListenerPause = true;
 
-            // Start playing the clip exactly from the 1.0 second mark
             float skipTime = 1f;
             if (crashSfx.length > skipTime)
             {
@@ -200,36 +197,41 @@ public class TrainController : MonoBehaviour
 
             src.Play();
             
-            // Destroy the object after the REMAINING length of the clip
             Destroy(sfxObj, crashSfx.length - src.time + 0.1f);
         }
     }
 
     private void OnCollisionEnter(Collision collision)
     {
-        // Fallback in case your colliders are solid (Is Trigger = false)
-        TrainController otherTrain = collision.collider.GetComponentInParent<TrainController>();
+        TrainBase otherTrain = collision.collider.GetComponentInParent<TrainBase>();
         if (otherTrain != null && otherTrain != this)
         {
             Debug.Log($"Train {gameObject.name} physically crashed into {otherTrain.gameObject.name}!");
             PlayCrashSound();
             if (GameManager.Instance != null) GameManager.Instance.GameOver();
+            return;
+        }
+
+        DebrisBase debris = collision.collider.GetComponentInParent<DebrisBase>();
+        if (debris != null)
+        {
+            Debug.Log($"Train {gameObject.name} physically crashed into debris!");
+            PlayCrashSound();
+            if (GameManager.Instance != null) GameManager.Instance.GameOver();
+            return;
         }
     }
 
-    // New method called by TrainCart.cs
     public void HandleTriggerExit(Collider other)
     {
         CrossingGate gate = other.GetComponentInParent<CrossingGate>();
         if (gate != null)
         {
-            // A cart left the zone! Count it down.
             cartsInGateZone--;
 
-            // ONLY execute the "exit" logic if the VERY LAST cart has left the zone
             if (cartsInGateZone <= 0)
             {
-                cartsInGateZone = 0; // Safety clamp to prevent negative numbers
+                cartsInGateZone = 0;
 
                 occupiedGates.Remove(gate);
                 gate.UnregisterTrainFromZone(this);
@@ -239,6 +241,7 @@ public class TrainController : MonoBehaviour
                     hasClearedZone = true;
                     gate.OnGateOpened.RemoveListener(ResumeTrainCarts);
                     ResumeTrainCarts();
+                    DisableAllColliders();
                 }
             }
         }
@@ -249,7 +252,6 @@ public class TrainController : MonoBehaviour
         CrossingGate gate = other.GetComponentInParent<CrossingGate>();
         if (gate != null)
         {
-            // ALWAYS unregister occupancy when we leave the gate
             occupiedGates.Remove(gate);
             gate.UnregisterTrainFromZone(this);
 
@@ -257,16 +259,23 @@ public class TrainController : MonoBehaviour
             {
                 hasClearedZone = true;
 
-                // Detach from entrance gate events — this train has passed and must not be stopped
                 gate.OnGateOpened.RemoveListener(ResumeTrainCarts);
 
-                // Ensure the train is running at full speed regardless of gate state
                 ResumeTrainCarts();
+                DisableAllColliders();
             }
         }
     }
 
-    private void StopTrainCarts()
+    private void DisableAllColliders()
+    {
+        foreach (var col in GetComponentsInChildren<Collider>())
+        {
+            col.enabled = false;
+        }
+    }
+
+    protected virtual void StopTrainCarts()
     {
         if (carts == null) return;
         
@@ -280,9 +289,15 @@ public class TrainController : MonoBehaviour
             }
         }
 
-        if (wasMoving && trainAudioSource != null && stoppingSfx != null)
+        if (wasMoving && trainAudioSource != null)
         {
-            StartCoroutine(PlayStoppingSoundRoutine());
+            trainAudioSource.Stop();
+        }
+
+        if (currentGate != null && !IsStoppedWaitingForGate)
+        {
+            IsStoppedWaitingForGate = true;
+            OnStoppedAtGate(currentGate);
         }
     }
 
@@ -293,10 +308,8 @@ public class TrainController : MonoBehaviour
         trainAudioSource.loop = false;
         trainAudioSource.Play();
         
-        // Let it play for EXACTLY 1 second
         yield return new WaitForSeconds(1f);
         
-        // Cut it off if it's still playing the stopping sfx
         if (trainAudioSource.clip == stoppingSfx)
         {
             trainAudioSource.Stop();
@@ -306,26 +319,35 @@ public class TrainController : MonoBehaviour
     private void ResumeTrainCarts()
     {
         if (carts == null) return;
+
+        bool wasStopped = false;
         for (int i = 0; i < carts.Length; i++)
         {
-            if (carts[i] != null) 
+            if (carts[i] != null)
             {
+                if (carts[i].m_Speed == 0f) wasStopped = true;
                 carts[i].m_Speed = originalSpeeds[i];
             }
         }
 
-        if (trainAudioSource != null && movingSfx != null)
+        if (wasStopped && trainAudioSource != null && movingSfx != null)
         {
             trainAudioSource.clip = movingSfx;
-            trainAudioSource.loop = true;
-            if (!trainAudioSource.isPlaying && trainAudioSource.gameObject.activeInHierarchy) 
-                trainAudioSource.Play();
+            trainAudioSource.Play();
+        }
+
+        if (currentGate != null && IsStoppedWaitingForGate)
+        {
+            IsStoppedWaitingForGate = false;
+            OnResumedFromGate(currentGate);
         }
     }
 
+    protected virtual void OnStoppedAtGate(CrossingGate gate) { }
+    protected virtual void OnResumedFromGate(CrossingGate gate) { }
+
     private void OnDisable()
     {
-        // Safe cleanup for object pooling
         foreach (var gate in occupiedGates)
         {
             if (gate != null) gate.UnregisterTrainFromZone(this);

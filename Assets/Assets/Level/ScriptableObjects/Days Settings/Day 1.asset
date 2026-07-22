@@ -16,9 +16,19 @@ MonoBehaviour:
   requiredTrainsToPass: 20
   minSimultaneousSpawns: 1
   maxSimultaneousSpawns: 2
-  initialTimeBetweenWaves: 6
-  timeBetweenWavesDecreaseRate: 0.1
-  minimumTimeBetweenWaves: 3
-  allowedTrainTypes: []
-  trackLayoutPrefab: {fileID: 0}
-  extraMechanicsPrefabs: []
+  timeBetweenWaves: 8
+  initialWarningDuration: 6
+  warningDurationDecreaseRate: 1
+  minimumWarningDuration: 2
+  allowedTrainTypes:
+  - {fileID: 2141116738193416212, guid: d9a62e9b5f9585b4ab5fadd3cf3a9fb5, type: 3}
+  trackLayoutPrefab: {fileID: 4744193040227299547, guid: d10d0645e4bb73445b37b8cee06cc526, type: 3}
+  extraMechanicsPrefabs:
+  - {fileID: 5193197026952941162, guid: 5b5ce858d96566a4fa0a2e7b494f84f6, type: 3}
+  debrisConfig:
+    enableDebrisThisDay: 1
+    debrisPrefabs:
+    - {fileID: 5890034873030978212, guid: 4640f15163e15704b9b6ada0180da4f4, type: 3}
+    minDebrisPerWave: 1
+    maxDebrisPerWave: 3
+    overrideRequiredClicks: 0

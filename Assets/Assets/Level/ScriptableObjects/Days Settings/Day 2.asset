@@ -19,6 +19,7 @@ MonoBehaviour:
   initialTimeBetweenWaves: 6
   timeBetweenWavesDecreaseRate: 0.1
   minimumTimeBetweenWaves: 3
-  allowedTrainTypes: []
-  trackLayoutPrefab: {fileID: 0}
+  allowedTrainTypes:
+  - {fileID: 2141116738193416212, guid: 22ecb6f3405746d469a696d71cdb5d74, type: 3}
+  trackLayoutPrefab: {fileID: 4744193040227299547, guid: d10d0645e4bb73445b37b8cee06cc526, type: 3}
   extraMechanicsPrefabs: []

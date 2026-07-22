@@ -12,6 +12,9 @@ public class LevelManager : MonoBehaviour
     [Header("References")]
     [Tooltip("Reference to the spawner.")]
     public TrainJunctionSpawner spawner;
+    
+    [Tooltip("Optional parent transform to instantiate the track layout and mechanics inside of.")]
+    public Transform trackContainer;
 
     public int CurrentDayIndex { get; private set; } = 0;
     
@@ -53,19 +56,16 @@ public class LevelManager : MonoBehaviour
 
         Debug.Log($"Starting {currentDaySettings.dayName}!");
 
-        // 1. Clean up old instances if any
         CleanupDay();
 
-        // 2. Spawn Track Layout
         JunctionLayout layoutToUse = null;
         if (currentDaySettings.trackLayoutPrefab != null)
         {
-            currentTrackLayoutInstance = Instantiate(currentDaySettings.trackLayoutPrefab);
+            currentTrackLayoutInstance = Instantiate(currentDaySettings.trackLayoutPrefab, trackContainer);
             layoutToUse = currentTrackLayoutInstance.GetComponent<JunctionLayout>();
         }
         else
         {
-            // Try to find a default one in the scene
             layoutToUse = FindFirstObjectByType<JunctionLayout>();
         }
 
@@ -75,19 +75,17 @@ public class LevelManager : MonoBehaviour
             return;
         }
 
-        // 3. Spawn Extra Mechanics
         if (currentDaySettings.extraMechanicsPrefabs != null)
         {
             foreach (var prefab in currentDaySettings.extraMechanicsPrefabs)
             {
                 if (prefab != null)
                 {
-                    extraMechanicsInstances.Add(Instantiate(prefab));
+                    extraMechanicsInstances.Add(Instantiate(prefab, trackContainer));
                 }
             }
         }
 
-        // 4. Initialize Spawner
         if (spawner != null)
         {
             spawner.SetupDay(currentDaySettings, layoutToUse);
@@ -103,7 +101,6 @@ public class LevelManager : MonoBehaviour
     {
         trainsPassedToday++;
 
-        // Also add score for legacy support
         if (GameManager.Instance != null)
         {
             GameManager.Instance.AddPoint();
@@ -118,8 +115,6 @@ public class LevelManager : MonoBehaviour
         {
             Debug.Log($"{currentDaySettings.dayName} Complete!");
             
-            // Wait for junction to clear naturally (the spawner has stopped spawning already)
-            // For now, we instantly trigger day complete UI when the last train passes.
             if (GameManager.Instance != null)
             {
                 GameManager.Instance.ShowDayCompleteUI(GameManager.Instance.Score);

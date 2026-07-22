@@ -10,10 +10,6 @@ using Unity.Cinemachine;
 /// </summary>
 public class TrainJunctionSpawner : MonoBehaviour
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Enums & nested types
-    // ─────────────────────────────────────────────────────────────────────────
-
     public enum TrackDirection
     {
         Top,
@@ -47,40 +43,34 @@ public class TrainJunctionSpawner : MonoBehaviour
         public List<RouteMap> routesFromHere = new List<RouteMap>();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Inspector fields
-    // ─────────────────────────────────────────────────────────────────────────
-
     [Header("Object Pooling")]
     [Tooltip("Default initial number of trains to keep in the pool (per type).")]
     public int defaultPoolCapacity = 10;
     
+    public static TrainJunctionSpawner Instance { get; private set; }
+
     [Tooltip("Maximum number of trains to store in the pool before destroying excess.")]
     public int maxPoolSize = 20;
 
-    [Header("Warning UI")]
-    [Tooltip("Reference to the TrainWarningUI component in the scene.")]
+    [Header("UI & Layout")]
+    [Tooltip("The UI manager that shows warnings and track directions.")]
     public TrainWarningUI warningUI;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Private state
-    // ─────────────────────────────────────────────────────────────────────────
+    public System.Action OnWaveStarted;
 
     private float timer;
-    private float currentCycleDuration;
+    private float currentWarningDuration;
     private DaySettings currentDaySettings;
+    public DaySettings CurrentDaySettings => currentDaySettings;
     private JunctionLayout activeLayout;
     private bool isSpawningActive = false;
     private int trainsSpawnedThisDay = 0;
-    private Dictionary<GameObject, UnityEngine.Pool.ObjectPool<TrainController>> trainPools = new Dictionary<GameObject, UnityEngine.Pool.ObjectPool<TrainController>>();
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Unity lifecycle
-    // ─────────────────────────────────────────────────────────────────────────
+    private Dictionary<GameObject, UnityEngine.Pool.ObjectPool<TrainBase>> trainPools = new Dictionary<GameObject, UnityEngine.Pool.ObjectPool<TrainBase>>();
 
     void Awake()
     {
-        // Pools are now initialized on demand per-prefab
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
     }
 
     void Start()
@@ -92,11 +82,10 @@ public class TrainJunctionSpawner : MonoBehaviour
     {
         currentDaySettings = daySettings;
         activeLayout = layout;
-        currentCycleDuration = daySettings.initialTimeBetweenWaves;
+        currentWarningDuration = daySettings.initialWarningDuration;
         trainsSpawnedThisDay = 0;
         isSpawningActive = true;
         
-        // Start with a short gap before the very first warning sequence kicks off
         timer = 2f;
     }
 
@@ -110,35 +99,24 @@ public class TrainJunctionSpawner : MonoBehaviour
         {
             TriggerWarnings();
             
-            // Decrease cycle duration for progressive difficulty
-            currentCycleDuration = Mathf.Max(
-                currentDaySettings.minimumTimeBetweenWaves, 
-                currentCycleDuration - currentDaySettings.timeBetweenWavesDecreaseRate
+            currentWarningDuration = Mathf.Max(
+                currentDaySettings.minimumWarningDuration, 
+                currentWarningDuration - currentDaySettings.warningDurationDecreaseRate
             );
-            timer = currentCycleDuration;
+            
+            timer = currentDaySettings.timeBetweenWaves;
         }
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Warning + Spawn logic
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Randomly selects up to 3 distinct entry+route pairs ensuring no topological deadlock
-    /// (so the player always has a way to solve the puzzle), and fires a warning UI for each.
-    /// The actual train instantiation is deferred to the warning's completion callback.
-    /// <summary>
+    
     private void TriggerWarnings()
     {
 
-        // We need at least enough entry points to satisfy the max spawn
         if (activeLayout.entryPoints.Count < currentDaySettings.maxSimultaneousSpawns)
         {
             Debug.LogWarning("Insufficient Entry Points in JunctionLayout!");
             return;
         }
 
-        // Shuffle a copy so we don't mutate the original list
         List<EntryPoint> shuffled = new List<EntryPoint>(activeLayout.entryPoints);
         for (int i = 0; i < shuffled.Count; i++)
         {
@@ -146,20 +124,17 @@ public class TrainJunctionSpawner : MonoBehaviour
             (shuffled[i], shuffled[rnd]) = (shuffled[rnd], shuffled[i]);
         }
 
-        // Determine how many trains to spawn this wave
         int trainsToSpawn = Random.Range(currentDaySettings.minSimultaneousSpawns, currentDaySettings.maxSimultaneousSpawns + 1);
 
-        // Cap by remaining trains for the day
         int remainingTrainsForDay = currentDaySettings.requiredTrainsToPass - trainsSpawnedThisDay;
         trainsToSpawn = Mathf.Min(trainsToSpawn, remainingTrainsForDay);
 
         if (trainsToSpawn <= 0)
         {
             isSpawningActive = false;
-            return; // We have spawned all required trains for the day!
+            return;
         }
 
-        // Grab exactly trainsToSpawn entry points (that actually have routes configured)
         List<EntryPoint> activeEntries = new List<EntryPoint>();
         for (int i = 0; i < shuffled.Count && activeEntries.Count < trainsToSpawn; i++)
         {
@@ -171,9 +146,10 @@ public class TrainJunctionSpawner : MonoBehaviour
 
         if (activeEntries.Count == 0) return;
 
+        OnWaveStarted?.Invoke();
+
         List<RouteMap> chosenRoutes = new List<RouteMap>();
 
-        // Try to generate a valid (deadlock-free) combination of routes
         bool foundValid = false;
         int maxAttempts = 50;
 
@@ -198,15 +174,48 @@ public class TrainJunctionSpawner : MonoBehaviour
             Debug.LogWarning("[TrainJunctionSpawner] Hard to find a deadlock-free set. Using the last random set.");
         }
 
-        // Spawn warnings for the selected routes
+        bool spawnedUnstoppableThisWave = false;
+
         for (int i = 0; i < activeEntries.Count; i++)
         {
             EntryPoint capturedEntry = activeEntries[i];
             RouteMap   capturedRoute = chosenRoutes[i];
 
             if (capturedRoute.path == null) continue;
+            
+            if (currentDaySettings.allowedTrainTypes == null || currentDaySettings.allowedTrainTypes.Count == 0) 
+            {
+                Debug.LogWarning("[TrainJunctionSpawner] Cannot spawn train. No allowed train types defined in current DaySettings.");
+                continue;
+            }
 
-            ShowWarning(capturedEntry, capturedRoute);
+            GameObject prefabToSpawn = null;
+            
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                prefabToSpawn = currentDaySettings.allowedTrainTypes[Random.Range(0, currentDaySettings.allowedTrainTypes.Count)];
+                
+                bool isUnstoppable = prefabToSpawn.GetComponent<UnstoppableTrain>() != null;
+                
+                if (isUnstoppable)
+                {
+                    if (spawnedUnstoppableThisWave)
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        spawnedUnstoppableThisWave = true;
+                        break;
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            ShowWarning(capturedEntry, capturedRoute, prefabToSpawn);
             trainsSpawnedThisDay++;
             if (LevelManager.Instance != null)
             {
@@ -214,15 +223,9 @@ public class TrainJunctionSpawner : MonoBehaviour
             }
         }
     }
-
-    /// <summary>
-    /// Checks if a set of routes creates a deadlock.
-    /// A deadlock occurs if trains form a cycle of dependencies (e.g., Top -> Bottom AND Bottom -> Top).
-    /// If there are cycles, the player cannot let either train enter the junction without crashing into the other.
-    /// </summary>
+    
     private bool IsValidCombination(List<EntryPoint> activeEntries, List<RouteMap> chosenRoutes)
     {
-        // remainingTrains maps: start entrance -> desired destination
         List<KeyValuePair<TrackDirection, TrackDirection>> remainingTrains = new List<KeyValuePair<TrackDirection, TrackDirection>>();
         for (int i = 0; i < activeEntries.Count; i++)
         {
@@ -234,13 +237,11 @@ public class TrainJunctionSpawner : MonoBehaviour
         {
             progressed = false;
             
-            // Try to find a train that can leave safely (its destination is empty / not occupied by another waiting train)
             for (int i = 0; i < remainingTrains.Count; i++)
             {
                 TrackDirection destination = remainingTrains[i].Value;
                 bool destinationBlocked = false;
 
-                // Is any *other* train waiting at 'destination'?
                 for (int j = 0; j < remainingTrains.Count; j++)
                 {
                     if (i != j && remainingTrains[j].Key == destination)
@@ -252,7 +253,6 @@ public class TrainJunctionSpawner : MonoBehaviour
 
                 if (!destinationBlocked)
                 {
-                    // This train has a clear exit, simulate it leaving the junction
                     remainingTrains.RemoveAt(i);
                     progressed = true;
                     break;
@@ -260,42 +260,42 @@ public class TrainJunctionSpawner : MonoBehaviour
             }
         }
 
-        // If all trains can eventually leave, the combination is solvable by the player!
         return remainingTrains.Count == 0;
     }
 
-    /// <summary>
-    /// Tells the UI manager to start the warning sequence for one entry+route pair.
-    /// Falls back to immediate spawn if the manager is missing.
-    /// </summary>
-    private void ShowWarning(EntryPoint entry, RouteMap route)
+    private void ShowWarning(EntryPoint entry, RouteMap route, GameObject prefabToSpawn)
     {
         if (warningUI == null)
         {
             Debug.LogWarning("[TrainJunctionSpawner] No warningUI assigned — spawning train immediately.");
-            SpawnTrain(entry, route);
+            SpawnTrain(entry, route, prefabToSpawn);
             return;
+        }
+
+        Sprite trainIcon = null;
+        if (prefabToSpawn != null)
+        {
+            TrainBase tb = prefabToSpawn.GetComponent<TrainBase>();
+            if (tb != null) trainIcon = tb.trainWarningIcon;
         }
 
         warningUI.ShowWarning(
             entry.entrance,
+            trainIcon,
             route.routeSprite,
-            () => SpawnTrain(entry, route)
+            currentWarningDuration,
+            () => SpawnTrain(entry, route, prefabToSpawn)
         );
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Object Pooling & Actual Spawning
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private UnityEngine.Pool.ObjectPool<TrainController> GetOrCreatePool(GameObject prefab)
+    private UnityEngine.Pool.ObjectPool<TrainBase> GetOrCreatePool(GameObject prefab)
     {
         if (!trainPools.ContainsKey(prefab))
         {
-            trainPools[prefab] = new UnityEngine.Pool.ObjectPool<TrainController>(
+            trainPools[prefab] = new UnityEngine.Pool.ObjectPool<TrainBase>(
                 createFunc: () => {
                     GameObject obj = Instantiate(prefab);
-                    return obj.GetComponent<TrainController>();
+                    return obj.GetComponent<TrainBase>();
                 },
                 actionOnGet: (train) => train.gameObject.SetActive(true),
                 actionOnRelease: (train) => train.gameObject.SetActive(false),
@@ -308,37 +308,25 @@ public class TrainJunctionSpawner : MonoBehaviour
         return trainPools[prefab];
     }
 
-    /// <summary>
-    /// Grabs a train from the pool, places it at the start, and hands it off.
-    /// </summary>
-    private void SpawnTrain(EntryPoint entry, RouteMap route)
+    private void SpawnTrain(EntryPoint entry, RouteMap route, GameObject prefabToSpawn)
     {
-        if (currentDaySettings == null || currentDaySettings.allowedTrainTypes == null || currentDaySettings.allowedTrainTypes.Count == 0 || route.path == null) 
-        {
-            Debug.LogWarning("[TrainJunctionSpawner] Cannot spawn train. No allowed train types defined in current DaySettings.");
-            return;
-        }
+        if (prefabToSpawn == null || route.path == null) return;
 
-        GameObject prefabToSpawn = currentDaySettings.allowedTrainTypes[Random.Range(0, currentDaySettings.allowedTrainTypes.Count)];
-        if (prefabToSpawn == null) return;
-
-        UnityEngine.Pool.ObjectPool<TrainController> pool = GetOrCreatePool(prefabToSpawn);
-        TrainController controller = pool.Get();
+        UnityEngine.Pool.ObjectPool<TrainBase> pool = GetOrCreatePool(prefabToSpawn);
+        TrainBase controller = pool.Get();
         
         if (controller != null)
         {
             Vector3 startPos = route.path.EvaluatePositionAtUnit(0, CinemachinePathBase.PositionUnits.Distance);
             
-            // Explicitly set the top-level transform
             controller.transform.position = startPos;
             controller.transform.rotation = Quaternion.identity;
 
-            // Pass the path, the gate, and the callback to return it to the correct pool
             controller.AssignRoute(route.path, entry.gate, (train) => pool.Release(train));
         }
         else
         {
-            Debug.LogWarning("[TrainJunctionSpawner] TrainController component not found on the spawned train prefab!");
+            Debug.LogWarning("[TrainJunctionSpawner] TrainBase component not found on the spawned train prefab!");
         }
     }
 }

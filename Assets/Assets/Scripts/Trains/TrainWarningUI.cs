@@ -42,92 +42,100 @@ public class TrainWarningUI : MonoBehaviour
     [Tooltip("AudioSource to play the warning SFX. Uses the one on this GameObject if not assigned.")]
     [SerializeField] private AudioSource audioSource;
 
+    private int[] activeWarningsCount = new int[4];
+
     void Start()
     {
-        // Hide all directions initially
         SetGroupAlpha(topImageCanvasGroup,    0f);
         SetGroupAlpha(rightImageCanvasGroup,  0f);
         SetGroupAlpha(bottomImageCanvasGroup, 0f);
         SetGroupAlpha(leftImageCanvasGroup,   0f);
     }
 
-    /// <summary>
-    /// Called by the Spawner to start the warning sequence for a specific entrance.
-    /// </summary>
+ 
     public void ShowWarning(
         TrainJunctionSpawner.TrackDirection arrivalDirection,
+        Sprite trainWarningSprite,
         Sprite routeSprite,
+        float totalWarningDuration,
         Action onSpawn)
     {
-        GetActiveReferences(arrivalDirection, out Image activeImage, out CanvasGroup activeGroup);
+        GetActiveReferences(arrivalDirection, out Image activeImage, out CanvasGroup activeGroup, out int dirIndex);
 
         if (activeImage != null && activeGroup != null)
         {
-            StartCoroutine(RunSequence(activeImage, activeGroup, routeSprite, onSpawn));
+            StartCoroutine(RunSequence(activeImage, activeGroup, trainWarningSprite, routeSprite, totalWarningDuration, onSpawn, dirIndex));
         }
         else
         {
-            // Fallback if the references aren't assigned
             onSpawn?.Invoke();
         }
     }
 
-    private void GetActiveReferences(TrainJunctionSpawner.TrackDirection direction, out Image img, out CanvasGroup group)
+    private void GetActiveReferences(TrainJunctionSpawner.TrackDirection direction, out Image img, out CanvasGroup group, out int dirIndex)
     {
         switch (direction)
         {
             case TrainJunctionSpawner.TrackDirection.Top:
                 img = topTrackImage;
                 group = topImageCanvasGroup;
+                dirIndex = 0;
                 break;
             case TrainJunctionSpawner.TrackDirection.Right:
                 img = rightTrackImage;
                 group = rightImageCanvasGroup;
+                dirIndex = 1;
                 break;
             case TrainJunctionSpawner.TrackDirection.Bottom:
                 img = bottomTrackImage;
                 group = bottomImageCanvasGroup;
+                dirIndex = 2;
                 break;
             case TrainJunctionSpawner.TrackDirection.Left:
                 img = leftTrackImage;
                 group = leftImageCanvasGroup;
+                dirIndex = 3;
                 break;
             default:
                 img = null;
                 group = null;
+                dirIndex = -1;
                 break;
         }
     }
 
-    private IEnumerator RunSequence(Image activeImage, CanvasGroup activeGroup, Sprite destinationRouteSprite, Action onSpawn)
+    private IEnumerator RunSequence(Image activeImage, CanvasGroup activeGroup, Sprite trainWarningSprite, Sprite destinationRouteSprite, float totalWarningDuration, Action onSpawn, int dirIndex)
     {
-        // ── Ensure AudioSource is hooked up ──
+        activeWarningsCount[dirIndex]++;
+        
+        float actualWarningSignDuration = Mathf.Min(warningSignDuration, totalWarningDuration * 0.2f);
+        float actualRouteShowDuration = Mathf.Max(0f, totalWarningDuration - actualWarningSignDuration);
+
         if (audioSource == null) audioSource = GetComponent<AudioSource>();
 
-        // ── Show the warning sprite ──
-        activeImage.sprite = warningSprite;
+        activeImage.sprite = trainWarningSprite != null ? trainWarningSprite : warningSprite;
         activeGroup.alpha = 1f;
 
-        // ── Play warning sound ──
         if (audioSource != null && warningSfx != null)
         {
             audioSource.PlayOneShot(warningSfx);
         }
 
-        // ── Phase 1: Wait while the warning sign is shown ──
-        yield return new WaitForSeconds(warningSignDuration);
+        yield return new WaitForSeconds(actualWarningSignDuration);
 
-        // ── Swap sprite instantly: warning sign → route destination sprite ──
         activeImage.sprite = destinationRouteSprite;
 
-        // ── Phase 2: Hold route sprite for routeShowDuration ──
-        yield return new WaitForSeconds(routeShowDuration);
+        yield return new WaitForSeconds(actualRouteShowDuration);
 
-        // ── Spawn the train ──
         onSpawn?.Invoke();
 
-        // ── Hide the UI for this direction ──
-        activeGroup.alpha = 0f;
+        activeWarningsCount[dirIndex]--;
+
+        if (activeWarningsCount[dirIndex] <= 0)
+        {
+            activeWarningsCount[dirIndex] = 0;
+            activeGroup.alpha = 0f;
+        }
     }
 
     private static void SetGroupAlpha(CanvasGroup group, float alpha)

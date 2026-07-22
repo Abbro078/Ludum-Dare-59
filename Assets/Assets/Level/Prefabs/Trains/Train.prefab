@@ -309,7 +309,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 2141116738193416212}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4d38d323161c4104fa84eb7c97fcab01, type: 3}
+  m_Script: {fileID: 11500000, guid: 096d9b94b77faee4cae2e02893b45c1d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TrainController
   carts:
@@ -320,6 +320,9 @@ MonoBehaviour:
   movingSfx: {fileID: 8300000, guid: d3c5125579aabc04c91b24feab6b6550, type: 3}
   stoppingSfx: {fileID: 8300000, guid: aab69449289c1d64982b9a22dd8a5e3e, type: 3}
   crashSfx: {fileID: 8300000, guid: 6f36fc89f353e6a4ebf41a53f3514d39, type: 3}
+  trainWarningIcon: {fileID: 595916223, guid: 60a3ab3200f52904cb502a73324b1bd6, type: 3}
+  originalSpeeds:
+  - 5
 --- !u!82 &8867032742769202308
 AudioSource:
   m_ObjectHideFlags: 0

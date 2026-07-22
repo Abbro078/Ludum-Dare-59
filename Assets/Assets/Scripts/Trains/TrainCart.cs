@@ -2,8 +2,8 @@ using UnityEngine;
 
 public class TrainCart : MonoBehaviour
 {
-    [Tooltip("Link this to the main TrainController managing this train.")]
-    public TrainController mainController;
+    [Tooltip("Link this to the main TrainBase managing this train.")]
+    public TrainBase mainController;
 
     private void OnTriggerEnter(Collider other)
     {
@@ -12,7 +12,6 @@ public class TrainCart : MonoBehaviour
 
     private void OnTriggerExit(Collider other)
     {
-        // Tell the main controller a cart has left the trigger!
         if (mainController != null) mainController.HandleTriggerExit(other);
     }
 }

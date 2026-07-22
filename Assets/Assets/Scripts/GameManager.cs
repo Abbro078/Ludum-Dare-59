@@ -79,7 +79,6 @@ public class GameManager : MonoBehaviour
             gameOverScoreText.text = Score.ToString();
         }
 
-        // Pause the game, stop time, and locally mute all standard sounds!
         Time.timeScale = 0f;
         AudioListener.pause = true; 
 
@@ -127,7 +126,6 @@ public class GameManager : MonoBehaviour
             dayCompletePanel.SetActive(true);
         }
 
-        // Pause the game, stop time, and locally mute all standard sounds!
         Time.timeScale = 0f;
         AudioListener.pause = true; 
     }
@@ -139,7 +137,6 @@ public class GameManager : MonoBehaviour
             dayCompletePanel.SetActive(false);
         }
 
-        // Resume time
         Time.timeScale = 1f;
         AudioListener.pause = false; 
     }
